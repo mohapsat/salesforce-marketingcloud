@@ -1,0 +1,73 @@
+
+
+<complexType name="DataExtension">
+
+<complexContent>
+
+  <extension base="tns:APIObject">
+
+    <sequence>
+
+      <element minOccurs="0" maxOccurs="1" name="Name" type="xsd:string" />
+
+      <element minOccurs="0" maxOccurs="1" name="Description" type="xsd:string" />
+
+      <element minOccurs="0" maxOccurs="1" name="IsSendable" type="xsd:boolean" />
+
+      <element minOccurs="0" maxOccurs="1" name="IsTestable" type="xsd:boolean" />
+
+      <element minOccurs="0" maxOccurs="1" name="SendableDataExtensionField" type="tns:DataExtensionField" />
+
+      <element minOccurs="0" maxOccurs="1" name="SendableSubscriberField" type="tns:Attribute" />
+
+      <element minOccurs="0" maxOccurs="1" name="Template" type="tns:DataExtensionTemplate" />
+
+      <!--Ignored when not adding -->
+
+      <element minOccurs="0" maxOccurs="1" name="DataRetentionPeriodLength" type="xsd:int" />
+
+      <element minOccurs="0" maxOccurs="1" name="DataRetentionPeriodUnitOfMeasure" type="xsd:int">
+
+        <annotation>
+
+          <documentation>Deprecated.  Use DataRetentionPeriod instead.</documentation>
+
+        </annotation>
+
+      </element>
+
+      <element minOccurs="0" maxOccurs="1" name="RowBasedRetention" type="xsd:boolean" />
+
+      <element minOccurs="0" maxOccurs="1" name="ResetRetentionPeriodOnImport" type="xsd:boolean" />
+
+      <element minOccurs="0" maxOccurs="1" name="DeleteAtEndOfRetentionPeriod" type="xsd:boolean" />
+
+      <element minOccurs="0" maxOccurs="1" name="RetainUntil" type="xsd:string" />
+
+      <element name="Fields" minOccurs="0" maxOccurs="1">
+
+        <complexType>
+
+          <sequence>
+
+            <element name="Field" minOccurs="0" maxOccurs="unbounded" type="tns:DataExtensionField" />
+
+          </sequence>
+
+        </complexType>
+
+      </element>
+
+      <element minOccurs="0" maxOccurs="1" name="DataRetentionPeriod" type="tns:DateTimeUnitOfMeasure" />
+
+      <element minOccurs="0" maxOccurs="1" name="CategoryID" type="xsd:long" />
+
+      <element minOccurs="0" maxOccurs="1" name="Status" type="xsd:string" />
+
+    </sequence>
+
+  </extension>
+
+</complexContent>
+
+</complexType>
