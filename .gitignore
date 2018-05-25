@@ -1,0 +1,4 @@
+config*
+config.python
+*.ini
+tdPyInterface.ini
