@@ -1,39 +1,105 @@
-# Sample config.python
-    # [Web Services]
-    # appsignature: ETL_API_GEN
-    # clientid: zpv5xxxxxxxxxxxxxxxxxx
-    # clientsecret: VMGYxxxxxxxxxxxxxxx
-    # defaultwsdl: http://webservice.exacttarget.com/etframework.wsdl
-    # authenticationurl: https://auth.exacttargetapis.com/v1/requestToken?legacy=1
-
-# Sample tdPyInterface.ini
-    ## Application Configuration
-    # [CONFIG]
-    # appName=CheckPoints
-    # version=1
-    # logConsole=False
-    # dataSourceName=TDDEV
-    # table=DBC.DBCInfo
-    #
-    # # Default Data Source Configuration
-    # [DEFAULT]
-    # method=odbc
-    # charset=UTF8
-    #
-    # # Data Source Definition
-    # [TDDEV]
-    # dsn=TDDEV
-    # username=crmp_su
-    # password=****
-    #
-    # [TDDB]
-    # dsn=TDDB
-    # username=crmp_su
-    # password=*******
+# deCreate.py
 
 import FuelSDK as f
 import teradata
 import time
+import json
+import requests
+import config
+
+
+def request_token():
+
+    # requestToken
+    token_url = "https://auth.exacttargetapis.com/v1/requestToken"
+    headers = {'content-type': 'application/json'}
+    token_data = {"clientId": config.clientid, "clientSecret": config.clientsecret}
+
+    response = requests.post(token_url, json=token_data, headers=headers)
+
+    token = json.loads(response.text)
+
+    # print("access token =" + str(token['accessToken']))
+    return str(token['accessToken'])
+
+
+def get_columns_str(table_name):
+
+    '''
+    Get cols and datatypes for table name. Tablename includes schema / db name
+    :param table_name:
+    :return: String of cols, comma separated
+    '''
+
+    dsn = 'TDDB'
+    udaExec = teradata.UdaExec(appName="tdPyInterface", version="1.0",
+                               logConsole=False, appConfigFile="tdPyInterface.ini")
+    session = udaExec.connect(dsn)
+    cols = []  # to store cols
+    col_qry = "select * from "+table_name+' where 1=2'
+    cursor = session.execute(col_qry)
+    for row in cursor.description:
+        cols.append(row[0])
+    tbl_cols = [] #to store cols in expected format
+    for x in cols:
+        tbl_cols.append(x.strip())
+
+    # convert to str preserving string quotes and delim
+    col_str = ",".join(tbl_cols)
+    return col_str
+    # pass
+
+
+def fetch_table_data_json(table_name):
+
+    dsn = 'TDDB' #'TDDEV', 'TDDB'
+    udaExec = teradata.UdaExec(appName="tdPyInterface", version="1.0",
+                               logConsole=False, appConfigFile="tdPyInterface.ini")
+    session = udaExec.connect(dsn)
+    rows = [] # to store rows list
+    cols = []
+
+    qry = "select TOP 10 cast(JSON_Compose(" + get_columns_str(table_name) + ") AS CLOB(20K)) JSON from " + table_name
+    # print(qry)
+    cursor = session.execute(qry)
+
+    try:
+        while True:
+            row = cursor.fetchone().values
+            rows.append(json.loads(row[0].strip())) # to convert str row to dict
+            if row is None:
+                break
+    except Exception as e:  # to handle None
+        print('Caught exception: ' + str(e))
+
+    # print(rows)
+    return rows
+    # return table_data_list
+
+
+def de_load_async(table_name, target_de):
+
+    # request token
+    auth_token = 'Bearer ' + request_token()  # Bearer Token
+    print("auth_token = " + auth_token)
+
+    header = {'content-type': 'application/json'}
+    de_name = str(target_de)
+    async_url = "https://www.exacttargetapis.com/data/v1/async/dataextensions/key:"+de_name+"/rows"
+
+    src_table = str(table_name)
+    payload = {"items": fetch_table_data_json(src_table)}
+    # print(payload)
+
+    # post async req
+    # TODO: Process 10K rows from the payload in a batch for async load
+    response = requests.post(async_url, json=payload, header=header)
+    print(response.text)
+
+    if response.status_code == 200:
+        print(str(de_name) + "loaded successfully!")
+    else:
+        print(str(de_name) + " load failed with status: " + str(response.status_code))
 
 
 def fetch_table_data(table_name):
@@ -67,7 +133,7 @@ def fetch_table_data(table_name):
         # print("table_data_dict = %s\n"% table_data_dict)
 
         table_data_list.append(table_data_dict.copy())
-        #need to append a copy, otherwise you are just adding references to the same dictionary over and over again
+        # need to append a copy, otherwise you are just adding references to the same dictionary over and over again
 
         # print("table_data_list = %s"% table_data_list)
     # print(table_data_list)
@@ -95,8 +161,8 @@ def get_columns(table_name):
     for x in cols:
         tbl_cols.append({"Name": x.strip()})
 
+    # print(tbl_cols)
     return tbl_cols
-    # pass
 
 
 def load_de(table_name, de_name):
@@ -118,7 +184,9 @@ def load_de(table_name, de_name):
     # print('Results: ' + str(de_loaded_response.results))
 
 
-def de_create(table_name, de_name):
+def de_create(de_name):
+    # TODO: Add datatype map
+
     try:
         debug = False
         stubObj = f.ET_Client(False, debug)
@@ -126,7 +194,7 @@ def de_create(table_name, de_name):
         FOLDER_ID = 502 #API_GEN
 
     # Create  Data Extension
-    #     print('Creating Data Extension %s'% DE_NAME)
+        print('Creating Data Extension %s' % DE_NAME)
         de = f.ET_DataExtension()
         de.auth_stub = stubObj
         de.props = {"Name": DE_NAME, "CustomerKey": DE_NAME, "CategoryID": FOLDER_ID}
@@ -143,12 +211,10 @@ def de_create(table_name, de_name):
         properties = de.props
         de.search_filter = {'Property': 'CustomerKey', 'SimpleOperator': 'equals', 'Value': DE_NAME}
         filter = de.search_filter
-        de_exists = de.get(properties,filter)
+        de_exists = de.get(properties, filter)
 
-        if len(de_exists.results) == 0: # If DE does not exist, post
+        if len(de_exists.results) == 0:  # If DE does not exist, post
             post_response = de.post()
-            # insert a row into the de
-            load_de(table_name)
             print('Post Status: ' + str(post_response.status))
             print('Code: ' + str(post_response.code))
             # print('Message: ' + str(post_response.message))
@@ -163,8 +229,18 @@ def de_create(table_name, de_name):
 
 
 if __name__ == '__main__':
+
+    table_name='cmdm.cmdm_product_d'
+    target_de = 'DE_API_SAT_005'
+
     start_time = time.time()
-    # de_create('cmdm.cmdm_user_d','DE_API_SAT_006')
-    load_de('cmdm.cmdm_product_d','DE_API_SAT_005')
-    # fetch_table_data('cmdm.cmdm_product_d')
+
+    # de_create(target_de)
+    de_load_async(table_name, target_de)
+
+    # load_de('cmdm.cmdm_product_d','DE_API_SAT_005')
+    # fetch_table_data_json('cmdm.cmdm_product_d')
+    #get_columns_str('cmdm.cmdm_product_d')
+    # request_token()
+
     print("--- %s seconds ---" % (time.time() - start_time))
