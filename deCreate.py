@@ -6,7 +6,7 @@ import time
 import json
 import requests
 import config
-
+import os, ssl
 
 def request_token():
 
@@ -59,7 +59,7 @@ def fetch_table_data_json(table_name):
     rows = [] # to store rows list
     cols = []
 
-    qry = "select TOP 10 cast(JSON_Compose(" + get_columns_str(table_name) + ") AS CLOB(20K)) JSON from " + table_name
+    qry = "select top 10000 cast(JSON_Compose(" + get_columns_str(table_name) + ") AS CLOB(500K)) PAYLOAD from " + table_name
     # print(qry)
     cursor = session.execute(qry)
 
@@ -70,36 +70,59 @@ def fetch_table_data_json(table_name):
             if row is None:
                 break
     except Exception as e:  # to handle None
-        print('Caught exception: ' + str(e))
-
+        # print('Caught exception: ' + str(e))
+        print("Payload ready")
     # print(rows)
     return rows
     # return table_data_list
 
 
-def de_load_async(table_name, target_de):
+def de_load_async(table_name, target_de, chunk_size):
 
     # request token
     auth_token = 'Bearer ' + request_token()  # Bearer Token
-    print("auth_token = " + auth_token)
+    # print("auth_token = " + auth_token)
 
-    header = {'content-type': 'application/json'}
+    headers = {'content-type': 'application/json',
+               'Authorization': auth_token}
+
     de_name = str(target_de)
+    # print(de_name)
+    # print(type(de_name))
+
     async_url = "https://www.exacttargetapis.com/data/v1/async/dataextensions/key:"+de_name+"/rows"
 
     src_table = str(table_name)
-    payload = {"items": fetch_table_data_json(src_table)}
-    # print(payload)
+    # print("source table= " % src_table)
 
-    # post async req
-    # TODO: Process 10K rows from the payload in a batch for async load
-    response = requests.post(async_url, json=payload, header=header)
-    print(response.text)
+    # TODO: Chunk payload to {chunk_size} rows each request
 
-    if response.status_code == 200:
-        print(str(de_name) + "loaded successfully!")
-    else:
-        print(str(de_name) + " load failed with status: " + str(response.status_code))
+    # src_data = list()
+    src_data = fetch_table_data_json(src_table)
+    # print(src_data)
+
+    data = list()  # to store chunks
+    items = len(src_data)
+
+    chunk_count = 0
+    chunk_size = int(chunk_size)
+
+    for i in range(0, len(src_data), chunk_size):
+        chunk_count += 1
+        data = src_data[i:i+chunk_size]
+        payload = {"items": data}
+        # post async req
+        response = requests.post(async_url, json=payload, headers=headers)
+        # print(response.text)
+
+        del data[:]  # empty the list
+
+        if int(response.status_code) == 200:
+            print("%s data chunk %d loaded successfully!" % (de_name, chunk_count))
+        else:
+            print("%s data chunk %d returned status: %s" % (de_name, chunk_count, response.status_code))
+
+    print("Load complete.")
 
 
 def fetch_table_data(table_name):
@@ -142,6 +165,7 @@ def fetch_table_data(table_name):
 
 def get_columns(table_name):
 
+    # TODO: Add datatype map
     '''
     Get cols and datatypes for table name. Tablename includes schema / db name
     :param table_name:
@@ -157,7 +181,7 @@ def get_columns(table_name):
     cursor = session.execute(col_qry)
     for row in cursor.description:
         cols.append(row[0])
-    tbl_cols = [] #to store cols in expected format
+    tbl_cols = []  # to store cols in expected format
     for x in cols:
         tbl_cols.append({"Name": x.strip()})
 
@@ -185,19 +209,17 @@ def load_de(table_name, de_name):
 
 
 def de_create(de_name):
-    # TODO: Add datatype map
-
     try:
         debug = False
         stubObj = f.ET_Client(False, debug)
-        DE_NAME = de_name
-        FOLDER_ID = 502 #API_GEN
+        target_de = de_name
+        target_folder = 502  #API_GEN
 
     # Create  Data Extension
-        print('Creating Data Extension %s' % DE_NAME)
+        print('Creating Data Extension %s' % target_de)
         de = f.ET_DataExtension()
         de.auth_stub = stubObj
-        de.props = {"Name": DE_NAME, "CustomerKey": DE_NAME, "CategoryID": FOLDER_ID}
+        de.props = {"Name": target_de, "CustomerKey": target_de, "CategoryID": target_folder}
         de.columns = get_columns(table_name)
 
         # de.columns = [
@@ -209,7 +231,7 @@ def de_create(de_name):
         # ]
 
         properties = de.props
-        de.search_filter = {'Property': 'CustomerKey', 'SimpleOperator': 'equals', 'Value': DE_NAME}
+        de.search_filter = {'Property': 'CustomerKey', 'SimpleOperator': 'equals', 'Value': target_de}
         filter = de.search_filter
         de_exists = de.get(properties, filter)
 
@@ -230,13 +252,19 @@ def de_create(de_name):
 
 if __name__ == '__main__':
 
+    # fix for SSL CERTIFICATE_VERIFY_FAILED exception  FuelSDK
+    if (not os.environ.get('PYTHONHTTPSVERIFY', '') and
+            getattr(ssl, '_create_unverified_context', None)):
+        ssl._create_default_https_context = ssl._create_unverified_context
+
     table_name='cmdm.cmdm_product_d'
-    target_de = 'DE_API_SAT_005'
+    target_de = 'DE_API_SAT_007'
+    chunk_size = 1000
 
     start_time = time.time()
 
-    # de_create(target_de)
-    de_load_async(table_name, target_de)
+    de_create(target_de)
+    # de_load_async(table_name, target_de, chunk_size)
 
     # load_de('cmdm.cmdm_product_d','DE_API_SAT_005')
     # fetch_table_data_json('cmdm.cmdm_product_d')
