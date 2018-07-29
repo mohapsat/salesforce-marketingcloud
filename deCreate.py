@@ -40,7 +40,7 @@ def get_columns_str(table_name):
     cursor = session.execute(col_qry)
     for row in cursor.description:
         cols.append(row[0])
-    tbl_cols = [] #to store cols in expected format
+    tbl_cols = []  # to store cols in expected format
     for x in cols:
         tbl_cols.append(x.strip())
 
@@ -52,25 +52,25 @@ def get_columns_str(table_name):
 
 def fetch_table_data_json(table_name):
 
-    dsn = 'TDDB' #'TDDEV', 'TDDB'
+    dsn = 'TDDB'  # 'TDDEV', 'TDDB'
     udaExec = teradata.UdaExec(appName="tdPyInterface", version="1.0",
                                logConsole=False, appConfigFile="tdPyInterface.ini")
     session = udaExec.connect(dsn)
-    rows = [] # to store rows list
+    rows = []  # to store rows list
     cols = []
 
-    qry = "select top 10000 cast(JSON_Compose(" + get_columns_str(table_name) + ") AS CLOB(500K)) PAYLOAD from " + table_name
+    qry = "select cast(JSON_Compose(" + get_columns_str(table_name) + ") as CLOB) PAYLOAD from " + table_name
     # print(qry)
     cursor = session.execute(qry)
 
     try:
         while True:
             row = cursor.fetchone().values
-            rows.append(json.loads(row[0].strip())) # to convert str row to dict
+            rows.append(json.loads(row[0]))  # to convert str row to dict
             if row is None:
                 break
     except Exception as e:  # to handle None
-        # print('Caught exception: ' + str(e))
+        print('Caught exception: ' + str(e))
         print("Payload ready")
     # print(rows)
     return rows
@@ -95,11 +95,13 @@ def de_load_async(table_name, target_de, chunk_size):
     src_table = str(table_name)
     # print("source table= " % src_table)
 
-    # TODO: Chunk payload to {chunk_size} rows each request
+    # TODO: Chunk payload to {chunk_size} rows each request - COMPLETED
 
     # src_data = list()
     src_data = fetch_table_data_json(src_table)
     # print(src_data)
+
+    print("Initiating chunking...")
 
     data = list()  # to store chunks
     items = len(src_data)
@@ -127,7 +129,7 @@ def de_load_async(table_name, target_de, chunk_size):
 
 def fetch_table_data(table_name):
 
-    dsn = 'TDDB' #'TDDEV', 'TDDB'
+    dsn = 'TDDB'  # 'TDDEV', 'TDDB'
     udaExec = teradata.UdaExec(appName="tdPyInterface", version="1.0",
                                logConsole=False, appConfigFile="tdPyInterface.ini")
     session = udaExec.connect(dsn)
@@ -189,6 +191,60 @@ def get_columns(table_name):
     return tbl_cols
 
 
+def get_columns_with_datatypes(table_name):
+
+    # TODO: Add datatype map - COMPLETED
+    '''
+    Get cols and datatypes for table name. Tablename includes schema / db name
+    :param table_name:
+    :return: list of dicts. Each dict represents a col. e.g. {"Name": "Col1"},{"Name": "Col2"}
+    '''
+
+    dsn = 'TDDB'
+    udaExec = teradata.UdaExec(appName="tdPyInterface", version="1.0",
+                               logConsole=False, appConfigFile="tdPyInterface.ini")
+    session = udaExec.connect(dsn)
+    cols = []  # to store cols
+    dts = []  # data types
+    col_width = []
+    col_qry = "select * from "+table_name+' where 1=2'
+    cursor = session.execute(col_qry)
+    for row in cursor.description:
+        cols.append(row[0])
+
+        # if row[1].__name__ == "Decimal":
+        #     row[1] = "decimal"
+        # elif row[1].__name__ == 'str':
+        #     row[1] = "text"
+        # elif row[1].__name__ == 'datetime':
+        #     row[1] = "datetime"
+        # else:
+        #     row[1] = "text"
+
+        # [ <class 'decimal.Decimal'>, < class 'str' >, < class 'datetime.datetime' >, < class 'decimal.Decimal' >]
+        dts.append(row[1].__name__)  # to get the name of the class
+        col_width.append([3])
+
+    # fix data type names in dts list
+    for x, dt in enumerate(dts):
+        if "datetime" in dt:
+            dts[x] = 'Date'  # update list val to match SFMC data type for datetime col
+        elif 'str' in dt:
+            dts[x] = 'Text'  # change str to Text
+
+    tbl_cols = []  # to store cols in expected format
+
+    for x, y in zip(cols, dts):
+        tbl_cols.append({"Name": x.strip(), "FieldType": y})
+    #     tbl_cols.append(x.strip())
+
+    # ['sk', 'id', 'dt', 'num_id']
+
+    # [[3], [3], [3], [3]]
+    # print(tbl_cols)
+    return tbl_cols
+
+
 def load_de(table_name, de_name):
 
     debug = False
@@ -219,11 +275,19 @@ def de_create(de_name):
         print('Creating Data Extension %s' % target_de)
         de = f.ET_DataExtension()
         de.auth_stub = stubObj
+
         de.props = {"Name": target_de, "CustomerKey": target_de, "CategoryID": target_folder}
-        de.columns = get_columns(table_name)
+        # de.columns = get_columns(table_name)
+        de.columns = get_columns_with_datatypes(table_name)  # switched to new version with data types
+        # print(de.columns)
+
+        # de.columns = [{'Name': 'PRODUCT_SK', 'FieldType': 'Decimal'}, {'Name': 'PRODSKU', 'FieldType': 'Text'}, {'Name': 'PRODUCTTYPE', 'FieldType': 'Text'}, {'Name': 'PRODUCTNAME', 'FieldType': 'Text'}, {'Name': 'PRODUCTDESC', 'FieldType': 'Text'}, {'Name': 'HIERLEVEL1', 'FieldType': 'Text'}, {'Name': 'HIERLEVEL2', 'FieldType': 'Text'}, {'Name': 'HIERLEVEL3', 'FieldType': 'Text'}, {'Name': 'REVENUEROLLUPFLAG', 'FieldType': 'Text'}, {'Name': 'UNITROLLUPFLAG', 'FieldType': 'Text'}, {'Name': 'PRODUCTCATEGORY', 'FieldType': 'Text'}, {'Name': 'PRODUCTSTATUS', 'FieldType': 'Text'}, {'Name': 'PCR_HIERLEVEL', 'FieldType': 'Text'}, {'Name': 'PLAN_RUN_ID', 'FieldType': 'Decimal'}, {'Name': 'SOURCE_SYSTEM_NAME', 'FieldType': 'Text'}, {'Name': 'CREATED_BY', 'FieldType': 'Text'}, {'Name': 'CREATED_DATE', 'FieldType': 'date'}, {'Name': 'MODIFIED_BY', 'FieldType': 'Text'}, {'Name': 'MODIFIED_DATE', 'FieldType': 'date'}, {'Name': 'PRODUCT_GROUP', 'FieldType': 'Text'}, {'Name': 'PCR_ALT_HIERLEVEL', 'FieldType': 'Text'}, {'Name': 'BRANDID', 'FieldType': 'Text'}]
+
+        # de.columns = [{'Name': 'PRODUCT_SK', 'FieldType': 'Decimal'}, {'Name': 'PRODSKU', 'FieldType': 'Text'},
+        #               {'Name': 'TESTDATE', 'FieldType': 'Date'}]
 
         # de.columns = [
-        #     {"Name": "Field1"},
+        #     {"Name": "Field1", 'FieldType': 'Text / Decimal /Date'},
         #     {"Name": "Field2"},
         #     {"Name": "Field3"},
         #     {"Name": "Field4"},
@@ -243,7 +307,16 @@ def de_create(de_name):
             # print('Results: ' + str(post_response.results))
         else:
             # pass
-            print("Warning: DE exists. Aborting Create.")
+            # TODO: Drop and Recreate DE - [COMPLETED]
+            print("Warning: DE exists. Deleting DE %s" % target_de)
+            delResponse = de.delete()
+            print('Delete Status: ' + str(delResponse.status))
+            print('Code: ' + str(delResponse.code))
+
+            print("Creating DE %s" % target_de)
+            post_response = de.post()
+            print('Post Status: ' + str(post_response.status))
+            print('Code: ' + str(post_response.code))
 
     except Exception as e:
         print('Caught exception: ' + str(e))
@@ -258,17 +331,18 @@ if __name__ == '__main__':
         ssl._create_default_https_context = ssl._create_unverified_context
 
     table_name='cmdm.cmdm_product_d'
-    target_de = 'DE_API_SAT_007'
-    chunk_size = 1000
+    target_de = 'ODS_CMDM_PRODUCT_D'
+    chunk_size = 5000
 
     start_time = time.time()
 
     de_create(target_de)
-    # de_load_async(table_name, target_de, chunk_size)
+
+    de_load_async(table_name, target_de, chunk_size)
 
     # load_de('cmdm.cmdm_product_d','DE_API_SAT_005')
     # fetch_table_data_json('cmdm.cmdm_product_d')
-    #get_columns_str('cmdm.cmdm_product_d')
+    # get_columns_with_datatypes(table_name)
     # request_token()
 
     print("--- %s seconds ---" % (time.time() - start_time))
