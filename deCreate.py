@@ -7,6 +7,7 @@ import json
 import requests
 import config
 import os, ssl
+import argparse
 
 def request_token():
 
@@ -325,13 +326,23 @@ def de_create(de_name):
 
 if __name__ == '__main__':
 
+    parser = argparse.ArgumentParser(description="SFMC Async Data Load")
+
+    parser.add_argument('-s', action="store", dest='table_name',
+                        help="source teradata table")
+    parser.add_argument('-t', action="store", dest='target_de',
+                        help="target salesforce data extension")
+    arg_val = parser.parse_args()
+
     # fix for SSL CERTIFICATE_VERIFY_FAILED exception  FuelSDK
     if (not os.environ.get('PYTHONHTTPSVERIFY', '') and
             getattr(ssl, '_create_unverified_context', None)):
         ssl._create_default_https_context = ssl._create_unverified_context
 
-    table_name='cmdm.cmdm_product_d'
-    target_de = 'ODS_CMDM_PRODUCT_D'
+    # table_name='cmdm.cmdm_product_d'
+    table_name = arg_val.table_name
+    # target_de = 'ODS_CMDM_PRODUCT_D'
+    target_de = arg_val.target_de
     chunk_size = 5000
 
     start_time = time.time()
