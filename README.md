@@ -6,9 +6,9 @@ Performs:
 - Load data into the Data Extension
 
 -----
+```
 
-```usage: deCreate.py [-h] [-s TABLE_NAME] [-t TARGET_DE] [-f FOLDERID]
-                   [-c CHUNK_SIZE]
+usage: deCreate.py [-h] [-s TABLE_NAME] [-t TARGET_DE] [-f FOLDERID] [-c CHUNK_SIZE]
 
 SFMC Async Data Load
 
