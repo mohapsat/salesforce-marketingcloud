@@ -9,6 +9,7 @@ import config
 import os, ssl
 import argparse
 
+
 def request_token():
 
     # requestToken
@@ -60,7 +61,7 @@ def fetch_table_data_json(table_name):
     rows = []  # to store rows list
     cols = []
 
-    qry = "select cast(JSON_Compose(" + get_columns_str(table_name) + ") as CLOB) PAYLOAD from " + table_name
+    qry = "select top 1000 cast(JSON_Compose(" + get_columns_str(table_name) + ") as CLOB) PAYLOAD from " + table_name
     # print(qry)
     cursor = session.execute(qry)
 
@@ -100,9 +101,17 @@ def de_load_async(table_name, target_de, chunk_size):
 
     # src_data = list()
     src_data = fetch_table_data_json(src_table)
-    # print(src_data)
+    # TODO: store payload to csv file - (optional)
 
-    print("Initiating chunking...")
+    # src_data = [{'sk': 2, 'id': 'A', 'dt': '2018-07-24 16:50:07', 'num_id': 2},
+    #             {'sk': 3, 'id': 'B', 'dt': '2018-07-24 16:50:08', 'num_id': 3}]
+
+    # src_data = [{'sk': 2.02, 'id': 'A'},
+    #             {'sk': 3.119, 'id': 'B'}]
+
+    # print("src data = %s" % src_data)
+
+    print("Initiating Chunking...")
 
     data = list()  # to store chunks
     items = len(src_data)
@@ -114,9 +123,10 @@ def de_load_async(table_name, target_de, chunk_size):
         chunk_count += 1
         data = src_data[i:i+chunk_size]
         payload = {"items": data}
+        # print("payload chunk = %s" % payload)
         # post async req
         response = requests.post(async_url, json=payload, headers=headers)
-        # print(response.text)
+        print(response.text)
 
         del data[:]  # empty the list
 
@@ -224,7 +234,7 @@ def get_columns_with_datatypes(table_name):
 
         # [ <class 'decimal.Decimal'>, < class 'str' >, < class 'datetime.datetime' >, < class 'decimal.Decimal' >]
         dts.append(row[1].__name__)  # to get the name of the class
-        col_width.append([3])
+        col_width.append(row[3])
 
     # fix data type names in dts list
     for x, dt in enumerate(dts):
@@ -235,14 +245,25 @@ def get_columns_with_datatypes(table_name):
 
     tbl_cols = []  # to store cols in expected format
 
-    for x, y in zip(cols, dts):
-        tbl_cols.append({"Name": x.strip(), "FieldType": y})
+
+    for x, y, z in zip(cols, dts, col_width):
+        tbl_cols.append({"Name": x.strip(), "FieldType": y, "MaxLength": z, "Scale": 0})
     #     tbl_cols.append(x.strip())
 
     # ['sk', 'id', 'dt', 'num_id']
+    # TODO: Remove MaxLength from cols with Date datatype - [COMPLETED]
 
-    # [[3], [3], [3], [3]]
-    # print(tbl_cols)
+    for x in tbl_cols:
+        if x.get('FieldType') == 'Date':
+            x.pop('MaxLength')  # pop max length key from the dict
+        if x.get('FieldType') != 'Decimal':
+            x.pop('Scale') # pop scale for non decimal data types
+
+    # TODO: Add precision (scale)
+        # if x.get('MaxLenght') == 1:
+        #     tbl_cols[x['MaxLenght']] = 10
+
+    # print("tbl cols = %s" % tbl_cols)
     return tbl_cols
 
 
@@ -265,12 +286,12 @@ def load_de(table_name, de_name):
     # print('Results: ' + str(de_loaded_response.results))
 
 
-def de_create(de_name):
+def de_create(de_name, folderID):
     try:
         debug = False
         stubObj = f.ET_Client(False, debug)
-        target_de = de_name
-        target_folder = 502  #API_GEN
+        target_de = str(de_name)
+        target_folder = int(folderID) #502  #API_GEN
 
     # Create  Data Extension
         print('Creating Data Extension %s' % target_de)
@@ -280,20 +301,11 @@ def de_create(de_name):
         de.props = {"Name": target_de, "CustomerKey": target_de, "CategoryID": target_folder}
         # de.columns = get_columns(table_name)
         de.columns = get_columns_with_datatypes(table_name)  # switched to new version with data types
-        # print(de.columns)
 
-        # de.columns = [{'Name': 'PRODUCT_SK', 'FieldType': 'Decimal'}, {'Name': 'PRODSKU', 'FieldType': 'Text'}, {'Name': 'PRODUCTTYPE', 'FieldType': 'Text'}, {'Name': 'PRODUCTNAME', 'FieldType': 'Text'}, {'Name': 'PRODUCTDESC', 'FieldType': 'Text'}, {'Name': 'HIERLEVEL1', 'FieldType': 'Text'}, {'Name': 'HIERLEVEL2', 'FieldType': 'Text'}, {'Name': 'HIERLEVEL3', 'FieldType': 'Text'}, {'Name': 'REVENUEROLLUPFLAG', 'FieldType': 'Text'}, {'Name': 'UNITROLLUPFLAG', 'FieldType': 'Text'}, {'Name': 'PRODUCTCATEGORY', 'FieldType': 'Text'}, {'Name': 'PRODUCTSTATUS', 'FieldType': 'Text'}, {'Name': 'PCR_HIERLEVEL', 'FieldType': 'Text'}, {'Name': 'PLAN_RUN_ID', 'FieldType': 'Decimal'}, {'Name': 'SOURCE_SYSTEM_NAME', 'FieldType': 'Text'}, {'Name': 'CREATED_BY', 'FieldType': 'Text'}, {'Name': 'CREATED_DATE', 'FieldType': 'date'}, {'Name': 'MODIFIED_BY', 'FieldType': 'Text'}, {'Name': 'MODIFIED_DATE', 'FieldType': 'date'}, {'Name': 'PRODUCT_GROUP', 'FieldType': 'Text'}, {'Name': 'PCR_ALT_HIERLEVEL', 'FieldType': 'Text'}, {'Name': 'BRANDID', 'FieldType': 'Text'}]
+        # de.columns = [{'Name': 'sk', 'FieldType': 'Decimal', 'MaxLength': '38'},
+        #               {'Name': 'id', 'FieldType': 'Text', 'MaxLength': '1024'}]
 
-        # de.columns = [{'Name': 'PRODUCT_SK', 'FieldType': 'Decimal'}, {'Name': 'PRODSKU', 'FieldType': 'Text'},
-        #               {'Name': 'TESTDATE', 'FieldType': 'Date'}]
-
-        # de.columns = [
-        #     {"Name": "Field1", 'FieldType': 'Text / Decimal /Date'},
-        #     {"Name": "Field2"},
-        #     {"Name": "Field3"},
-        #     {"Name": "Field4"},
-        #     {"Name": "Field5"},
-        # ]
+        print("DE_COLUMNS = %s" % de.columns)
 
         properties = de.props
         de.search_filter = {'Property': 'CustomerKey', 'SimpleOperator': 'equals', 'Value': target_de}
@@ -304,8 +316,8 @@ def de_create(de_name):
             post_response = de.post()
             print('Post Status: ' + str(post_response.status))
             print('Code: ' + str(post_response.code))
-            # print('Message: ' + str(post_response.message))
-            # print('Results: ' + str(post_response.results))
+            print('Message: ' + str(post_response.message))
+            print('Results: ' + str(post_response.results))
         else:
             # pass
             # TODO: Drop and Recreate DE - [COMPLETED]
@@ -329,9 +341,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="SFMC Async Data Load")
 
     parser.add_argument('-s', action="store", dest='table_name',
-                        help="source teradata table")
+                        help="Source Teradata table")
     parser.add_argument('-t', action="store", dest='target_de',
-                        help="target salesforce data extension")
+                        help="target Salesforce data extension")
+    parser.add_argument('-f', action="store", dest='folderID',
+                        help="target Salesforce folder ID")
+    parser.add_argument('-c', action="store", dest='chunk_size',
+                        help="Batch size for Salesforce Load")
     arg_val = parser.parse_args()
 
     # fix for SSL CERTIFICATE_VERIFY_FAILED exception  FuelSDK
@@ -339,21 +355,14 @@ if __name__ == '__main__':
             getattr(ssl, '_create_unverified_context', None)):
         ssl._create_default_https_context = ssl._create_unverified_context
 
-    # table_name='cmdm.cmdm_product_d'
-    table_name = arg_val.table_name
-    # target_de = 'ODS_CMDM_PRODUCT_D'
-    target_de = arg_val.target_de
-    chunk_size = 5000
+    table_name = str(arg_val.table_name)
+    target_de = str(arg_val.target_de)
+    chunk_size = int(arg_val.chunk_size)
+    folderID = int(arg_val.folderID)
 
     start_time = time.time()
 
-    de_create(target_de)
-
+    de_create(target_de, folderID)
     de_load_async(table_name, target_de, chunk_size)
-
-    # load_de('cmdm.cmdm_product_d','DE_API_SAT_005')
-    # fetch_table_data_json('cmdm.cmdm_product_d')
-    # get_columns_with_datatypes(table_name)
-    # request_token()
 
     print("--- %s seconds ---" % (time.time() - start_time))
