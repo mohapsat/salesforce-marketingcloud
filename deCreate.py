@@ -61,7 +61,7 @@ def fetch_table_data_json(table_name):
     rows = []  # to store rows list
     cols = []
 
-    qry = "select top 1000 cast(JSON_Compose(" + get_columns_str(table_name) + ") as CLOB) PAYLOAD from " + table_name
+    qry = "select cast(JSON_Compose(" + get_columns_str(table_name) + ") as CLOB) PAYLOAD from " + table_name
     # print(qry)
     cursor = session.execute(qry)
 
