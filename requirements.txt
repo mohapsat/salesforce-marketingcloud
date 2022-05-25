@@ -1,7 +1,7 @@
 certifi==2018.4.16
 chardet==3.0.4
 idna==2.6
-PyJWT==1.6.1
+PyJWT==2.4.0
 requests==2.18.4
 Salesforce-FuelSDK==1.0.1
 simple-salesforce==0.74.2
